@@ -3,15 +3,58 @@
   "group": "Simulador",
   "order": 20,
   "url": "https://simulador-livid-kappa.vercel.app",
-  "players": { "min": 1, "max": 1 },
-  "tags": ["📱 Celular = volante", "🔊 Vibra"],
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "tags": [
+    "📱 Celular = volante",
+    "🔊 Vibra"
+  ],
   "pad": "/?c={code}&hub={code}",
   "solo": "/#solo",
+  "offline": "/?hub={code}&g={id}",
   "entries": [
-    { "id": "plane", "name": "Avión", "emoji": "✈️", "color": "#ff5a36", "desc": "Volá entre montañas y lagos, y pasá por los aros dorados.", "tv": "/?hub={code}&g=plane" },
-    { "id": "world", "name": "Mundo real", "emoji": "🌎", "color": "#2f8fff", "desc": "Volá sobre ciudades reales en 3D.", "tv": "/?hub={code}&g=world" },
-    { "id": "race", "name": "Carrera", "emoji": "🏎️", "color": "#18c97a", "desc": "3 vueltas contra la computadora, con nitro y derrape.", "tv": "/?hub={code}&g=race" },
-    { "id": "owl", "name": "Lechuza", "emoji": "🦉", "color": "#8f6bff", "desc": "Vuelo nocturno sobre el bosque: atrapá los orbes mágicos.", "tv": "/?hub={code}&g=owl" },
-    { "id": "coaster", "name": "Montaña rusa", "emoji": "🎢", "color": "#ffb020", "desc": "Caída de 60 m, rizo y curvas. Mové el celu para mirar.", "tv": "/?hub={code}&g=coaster" }
+    {
+      "id": "plane",
+      "name": "Avión",
+      "emoji": "✈️",
+      "color": "#ff5a36",
+      "desc": "Volá entre montañas y lagos, y pasá por los aros dorados.",
+      "tv": "/?hub={code}&g=plane"
+    },
+    {
+      "id": "world",
+      "name": "Mundo real",
+      "emoji": "🌎",
+      "color": "#2f8fff",
+      "desc": "Volá sobre ciudades reales en 3D.",
+      "tv": "/?hub={code}&g=world",
+      "needsInternet": true
+    },
+    {
+      "id": "race",
+      "name": "Carrera",
+      "emoji": "🏎️",
+      "color": "#18c97a",
+      "desc": "3 vueltas contra la computadora, con nitro y derrape.",
+      "tv": "/?hub={code}&g=race"
+    },
+    {
+      "id": "owl",
+      "name": "Lechuza",
+      "emoji": "🦉",
+      "color": "#8f6bff",
+      "desc": "Vuelo nocturno sobre el bosque: atrapá los orbes mágicos.",
+      "tv": "/?hub={code}&g=owl"
+    },
+    {
+      "id": "coaster",
+      "name": "Montaña rusa",
+      "emoji": "🎢",
+      "color": "#ffb020",
+      "desc": "Caída de 60 m, rizo y curvas. Mové el celu para mirar.",
+      "tv": "/?hub={code}&g=coaster"
+    }
   ]
 }
