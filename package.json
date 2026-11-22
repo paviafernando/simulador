@@ -1,0 +1,22 @@
+{
+  "name": "simulador",
+  "version": "1.0.0",
+  "description": "Simulador 3D familiar con el celular como mando",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "peerjs": "^1.5.5",
+    "qrcode": "^1.5.4",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  },
+  "type": "module"
+}
