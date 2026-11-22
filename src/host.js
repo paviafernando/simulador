@@ -13,6 +13,9 @@ const loaders = {
   race: () => import('./games/race.js'),
 };
 
+const HUB = new URLSearchParams(location.search).get('hub');
+const HUB_URL = 'https://pf-juegos.vercel.app';
+
 export async function startHost({ solo = false } = {}) {
   const app = document.getElementById('app');
   app.innerHTML = `
@@ -35,6 +38,7 @@ export async function startHost({ solo = false } = {}) {
         <div class="lob-foot">
           <label>Calidad <select id="quality"><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select></label>
           ${solo ? '' : '<a class="solo-link" href="/#solo">📱 Jugar solo en este celular</a>'}
+          ${HUB ? '<button class="hub-link" id="hubHome">🏠 Todos los juegos</button>' : ''}
           <span class="keys">Teclado: flechas · W/S · Espacio · C · Esc</span>
         </div>
       </div>
@@ -111,6 +115,15 @@ export async function startHost({ solo = false } = {}) {
   }
 
   document.querySelectorAll('.gcard').forEach((b) => (b.onclick = () => { unlock(); launch(b.dataset.g); }));
+
+  // ---- índice PF Juegos ----
+  const goHub = () => { toPad({ t: 'home' }); setTimeout(() => { location.href = `${HUB_URL}/?tv`; }, 250); };
+  if (HUB) {
+    document.getElementById('hubHome').onclick = goHub;
+    window.addEventListener('keydown', (e) => { if (e.key === 'Backspace' || e.key === 'BrowserBack' || e.key === 'GoBack') { if (!game) { e.preventDefault(); goHub(); } } });
+    const g0 = new URLSearchParams(location.search).get('g');
+    if (g0 && loaders[g0]) setTimeout(() => launch(g0), 300);
+  }
 
   // ---- teclado ----
   window.addEventListener('keydown', (e) => {

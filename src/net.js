@@ -12,12 +12,18 @@ export class HostLink {
     this.open();
   }
   open(tries = 0) {
-    this.code = sessionStorage.getItem('simu-code') || genCode();
+    // Desde el índice PF Juegos (?hub=1234) la sala usa ese código, así los celulares la encuentran solos.
+    const hub = new URLSearchParams(location.search).get('hub');
+    this.code = (hub && tries < 6 ? hub : null) || sessionStorage.getItem('simu-code') || genCode();
     const peer = new Peer(PREFIX + this.code, { debug: 0 });
     this.peer = peer;
     peer.on('open', () => { sessionStorage.setItem('simu-code', this.code); this.onStatus?.('ready', this.code); });
     peer.on('error', (e) => {
-      if (e.type === 'unavailable-id' && tries < 5) { sessionStorage.removeItem('simu-code'); peer.destroy(); this.open(tries + 1); }
+      if (e.type === 'unavailable-id' && tries < 8) {
+        peer.destroy();
+        if (hub && tries < 5) setTimeout(() => this.open(tries + 1), 1200); // el código del hub tarda un poco en liberarse
+        else { sessionStorage.removeItem('simu-code'); this.open(Math.max(tries + 1, 6)); }
+      }
       else this.onStatus?.('error', e.type);
     });
     peer.on('disconnected', () => setTimeout(() => !peer.destroyed && peer.reconnect(), 1000));
