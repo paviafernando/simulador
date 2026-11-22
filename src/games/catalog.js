@@ -1,3 +1,4 @@
+// Si sumás o cambiás un juego acá, actualizá también /pf-juego.json (es lo que lee el índice PF Juegos).
 export const GAMES = [
   { id: 'plane', name: 'Avión', emoji: '✈️', color: '#ff5a36', short: 'Volá entre montañas y pasá por los aros',
     labels: { a: 'TURBO', b: 'CÁMARA', gas: 'MÁS', brake: 'MENOS' } },
