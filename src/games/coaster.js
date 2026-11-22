@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeNoise, smoothstep } from '../engine/noise.js';
 import { buildTerrain, naturalColor, scatterTrees, buildClouds, buildWater, Particles, getDot } from '../engine/terrain.js';
+import { buildGrass } from '../engine/grass.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -124,7 +125,8 @@ export default class CoasterGame {
   constructor({ world, synth, fx, hud }) {
     Object.assign(this, { world, synth, fx, hud });
     const scene = world.scene;
-    world.setupAtmosphere({ mode: 'sunset', elevation: 5, azimuth: 250, fog: 0.0016, fogColor: 0xd89a7a, exposure: 0.42, shadowRange: 90, bloom: { strength: 0.55, radius: 0.5, threshold: 0.9 } });
+    world.setupAtmosphere({ mode: 'sunset', hour: 19.1, exposure: 0.75, env: 'venice_sunset_1k.hdr', shadowRange: 110, bloom: { strength: 0.7, threshold: 1.0 },
+      clouds: { coverage: 0.3 }, ao: { radius: 2.5, intensity: 2 } });
     const N = makeNoise(5);
     const lake = (x, z) => 1 - smoothstep(40, 90, Math.hypot(x - 90, z + 150));
     const H = (x, z) => {
@@ -134,12 +136,13 @@ export default class CoasterGame {
       return h - lake(x, z) * 9;
     };
     this.H = H;
-    scene.add(buildTerrain({ size: 3600, segments: world.q.segments, heightFn: H, colorFn: naturalColor(N, { waterLevel: -2, snowLine: 9999 }) }));
+    scene.add(buildTerrain({ size: 3600, segments: world.q.segments, heightFn: H, colorFn: naturalColor(N), noise: N, waterLevel: -2, rockSlope: 0.35 }));
+    if (world.q.grass) scene.add(this.grass = buildGrass({ heightFn: H, maskFn: (x, z) => (H(x, z) < -0.5 ? 0 : 0.85), area: 900, center: new THREE.Vector2(80, 40), count: Math.floor(200000 * world.q.grass), radius: 38, color: 0x4f7a2a, tip: 0xc9c26a, bladeH: 0.45 }));
     this.water = buildWater(world, { level: -2, color: 0x2a4f66, sunColor: 0xffc080, size: 3000 }); scene.add(this.water);
     scene.add(scatterTrees({ count: Math.floor(2500 * world.q.trees), area: 1600, center: new THREE.Vector2(80, 40), heightFn: H, rnd: N.rnd, kind: 'round',
       palette: [0x4e7a2c, 0x6a8a2a, 0x3f6a26, 0x7a8f35, 0x9a7a2a], scale: [1, 1.8],
       accept: (x, z, y) => y > -1 && !this.nearTrack(x, z, 9), castShadow: world.q.shadows }));
-    scene.add(buildClouds({ count: Math.floor(30 * world.q.clouds), area: 4000, height: [300, 500], tint: 0xffd2b0, shade: 0x8a6a8a, rnd: N.rnd, puffSize: 110 }));
+    if (!world.atmo?.clouds && world.q.billboardClouds) scene.add(buildClouds({ count: Math.floor(30 * world.q.billboardClouds), area: 4000, height: [300, 500], tint: 0xffd2b0, shade: 0x8a6a8a, rnd: N.rnd, puffSize: 110, E: world.E }));
 
     // pista
     const curve = new THREE.CatmullRomCurve3(trackPoints(), true, 'centripetal');
@@ -206,7 +209,7 @@ export default class CoasterGame {
       const fo = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.5), skin); fo.position.y = 0.82; a.add(fo);
       const h = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), skin); h.position.y = 1.1; a.add(h);
       a.rotation.z = -x * 0.5; this.arms.add(a); });
-    world.camera.add(this.arms); scene.add(world.camera);
+    scene.add(this.arms);
     this.armUp = 0;
 
     this.particles = new Particles(scene, 600, { size: 0.6 });
@@ -233,6 +236,7 @@ export default class CoasterGame {
   update(dt, inp) {
     const F = this.F, world = this.world;
     this.ferris.userData.update(dt);
+    this.grass?.userData.update(this.world.camera);
     this.water.userData.animate(dt);
     this.particles.update(dt);
     if (this.msgT > 0 && (this.msgT -= dt) <= 0) this.hud.C.innerHTML = '';
@@ -281,7 +285,7 @@ export default class CoasterGame {
       const shake = Math.min(1, this.v / 30) * 0.012 + (this.chain ? 0.003 : 0);
       q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, 0)));
       cam.quaternion.slerp(q, Math.min(1, dt * 20));
-      cam.position.copy(b.p).addScaledVector(b.U, 1.75 + (felt - 1) * -0.03).addScaledVector(b.T, 0.1);
+      cam.position.copy(b.p).addScaledVector(b.U, 1.95 + (felt - 1) * -0.03).addScaledVector(b.T, 0.45);
       cam.fov += (78 + Math.min(14, this.v * 0.35) - cam.fov) * Math.min(1, dt * 2); cam.updateProjectionMatrix();
       this.arms.visible = true;
     } else {
@@ -293,6 +297,7 @@ export default class CoasterGame {
     if (inp.aPressed) { this.fx.sound('whee'); this.fx.vibrate([200, 50, 200]); }
     this.armUp += (raise - this.armUp) * Math.min(1, dt * 6);
     this.arms.visible = this.arms.visible && this.armUp > 0.03;
+    this.arms.position.copy(cam.position); this.arms.quaternion.copy(cam.quaternion);
     this.arms.children.forEach((arm, i) => { arm.rotation.x = -0.2 + this.armUp * 0.1; arm.position.y = -1.6 + this.armUp * 0.9; arm.rotation.z = (i ? -1 : 1) * 0.35; });
     world.followShadow(b.p);
 
@@ -309,5 +314,5 @@ export default class CoasterGame {
     if (this.state === 'station' && this.msgT <= 0) this.say(`Salida en ${Math.ceil(this.dwell)}… (ARRANCAR para salir ya)`, 0.3);
   }
   padHud() { return `${Math.round(this.v * 3.6)} km/h · Vueltas ${this.laps}`; }
-  dispose() { this.world.camera.remove(this.arms); }
+  dispose() {}
 }

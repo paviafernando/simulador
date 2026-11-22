@@ -5,9 +5,11 @@ import { HostLink } from './net.js';
 import { GAMES } from './games/catalog.js';
 import { createPad } from './pad.js';
 import { haptic } from './sensors.js';
+import { SHARED } from './engine/terrain.js';
 
 const loaders = {
   plane: () => import('./games/plane.js'),
+  world: () => import('./games/realworld.js'),
   owl: () => import('./games/owl.js'),
   coaster: () => import('./games/coaster.js'),
   race: () => import('./games/race.js'),
@@ -36,7 +38,7 @@ export async function startHost({ solo = false } = {}) {
           <div class="games">${GAMES.map((g) => `<button class="gcard" data-g="${g.id}" style="--c:${g.color}"><span class="em">${g.emoji}</span><b>${g.name}</b><small>${g.short}</small></button>`).join('')}</div>
         </div>
         <div class="lob-foot">
-          <label>Calidad <select id="quality"><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select></label>
+          <label>Calidad <select id="quality"><option value="ultra">Ultra (PC potente)</option><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja (Smart TV)</option></select></label>
           ${solo ? '' : '<a class="solo-link" href="/#solo">📱 Jugar solo en este celular</a>'}
           ${HUB ? '<button class="hub-link" id="hubHome">🏠 Todos los juegos</button>' : ''}
           <span class="keys">Teclado: flechas · W/S · Espacio · C · Esc</span>
@@ -164,7 +166,12 @@ export async function startHost({ solo = false } = {}) {
     world.clear();
     const hudEls = { L: document.getElementById('hudL'), C: document.getElementById('hudC'), R: document.getElementById('hudR'), map: document.getElementById('minimap') };
     hudEls.map.style.display = 'none';
-    game = new mod.default({ world, synth, fx, hud: hudEls, quality: world.q, solo });
+    try {
+      const g = new mod.default({ world, synth, fx, hud: hudEls, quality: world.q, solo });
+      if (g.ready) await g.ready;
+      game = g;
+      world.calibrate();
+    } catch (e) { console.error(e); document.getElementById('loading').querySelector('span').textContent = 'Error: ' + e.message; return; }
     document.getElementById('loading').classList.add('hide');
     document.getElementById('hud').classList.add('on');
     if (!synth.ctx || synth.ctx.state !== 'running') document.getElementById('tapsound').classList.remove('hide');
@@ -190,6 +197,7 @@ export async function startHost({ solo = false } = {}) {
     requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (!game) return;
+    SHARED.time.value += dt;
     const inp = readInput(dt);
     game.update(dt, inp);
     world.render();

@@ -1,6 +1,8 @@
 export const GAMES = [
   { id: 'plane', name: 'Avión', emoji: '✈️', color: '#ff5a36', short: 'Volá entre montañas y pasá por los aros',
     labels: { a: 'TURBO', b: 'CÁMARA', gas: 'MÁS', brake: 'MENOS' } },
+  { id: 'world', name: 'Mundo real', emoji: '🌎', color: '#2f8fff', short: 'Volá sobre ciudades reales en 3D (Google)',
+    labels: { a: 'TURBO', b: 'LUGAR', gas: 'MÁS', brake: 'MENOS' } },
   { id: 'owl', name: 'Lechuza', emoji: '🦉', color: '#8f6bff', short: 'Vuelo nocturno en el bosque: atrapá orbes mágicos',
     labels: { a: 'ALETEAR', b: 'ULULAR', gas: 'PLANEAR', brake: 'FRENAR' } },
   { id: 'coaster', name: 'Montaña rusa', emoji: '🎢', color: '#ffb020', short: 'Mirá alrededor moviendo el celu',

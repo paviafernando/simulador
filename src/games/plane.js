@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeNoise, smoothstep } from '../engine/noise.js';
 import { buildTerrain, naturalColor, scatterTrees, buildClouds, buildWater, Particles, terrainSlope } from '../engine/terrain.js';
+import { loadModel } from '../engine/assets.js';
 import { Flyer, ChaseCam, ringMesh, arrowMesh } from './flyer.js';
 
 export function buildPlaneModel() {
@@ -50,7 +51,8 @@ export default class PlaneGame {
   constructor({ world, synth, fx, hud, quality }) {
     Object.assign(this, { world, synth, fx, hud, q: quality });
     const scene = world.scene;
-    world.setupAtmosphere({ mode: 'day', elevation: 22, azimuth: 140, fog: 0.00018, exposure: 0.5, shadowRange: 60, bloom: { strength: 0.3, threshold: 0.92 } });
+    world.setupAtmosphere({ mode: 'day', hour: 10.2, env: 'skies_1k.hdr', shadowRange: 50, bloom: { strength: 0.5, threshold: 1.0 },
+      clouds: { coverage: 0.42, layers: [{ altitude: 620, height: 550 }, { altitude: 950, height: 1100 }] }, ao: { radius: 6, intensity: 1.6 } });
     const N = makeNoise(7);
     this.noise = N;
     const H = (x, z) => {
@@ -63,15 +65,27 @@ export default class PlaneGame {
       return h;
     };
     this.H = H;
-    scene.add(buildTerrain({ size: 10000, segments: world.q.segments, heightFn: H, colorFn: naturalColor(N, { snowLine: 360 }) }));
+    scene.add(buildTerrain({ size: 10000, segments: world.q.segments, heightFn: H, colorFn: naturalColor(N), noise: N, snowLine: 380, waterLevel: 0, rockSlope: 0.3 }));
     this.water = buildWater(world, { level: 0, color: 0x1b5378 });
     scene.add(this.water);
     const trees = Math.floor(9000 * world.q.trees);
     if (trees) scene.add(scatterTrees({ count: trees, area: 7000, heightFn: H, rnd: N.rnd, accept: (x, z, y) => y > 6 && y < 260 && terrainSlope(H, x, z) < 0.45 && N.fbm(x * 0.002, z * 0.002, 2) > -0.05, scale: [2.5, 4.5] }));
-    this.clouds = buildClouds({ count: Math.floor(70 * world.q.clouds), area: 8000, height: [380, 650], rnd: N.rnd, puffSize: 120 });
-    scene.add(this.clouds);
+    if (!world.atmo?.clouds && world.q.billboardClouds) scene.add(buildClouds({ count: Math.floor(70 * world.q.billboardClouds), area: 8000, height: [380, 650], rnd: N.rnd, puffSize: 120, E: world.E }));
 
-    this.plane = buildPlaneModel(); scene.add(this.plane);
+    this.plane = new THREE.Group(); scene.add(this.plane);
+    this.fallback = buildPlaneModel(); this.plane.add(this.fallback);
+    this.plane.userData.prop = this.fallback.userData.prop;
+    this.ready = loadModel('/assets/models/plane.glb').then((g) => {
+      if (!g) return;
+      const m = g.scene; m.scale.setScalar(0.52); m.position.set(0, -0.4, 1.2);
+      m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; if (o.material.name === 'prop') { o.material.transparent = true; } } });
+      this.plane.remove(this.fallback); this.plane.add(m);
+      this.mixer = new THREE.AnimationMixer(m);
+      g.animations.forEach((a) => this.mixer.clipAction(a).play());
+      this.plane.userData.prop = new THREE.Object3D();
+      this.wingTips = [-6.6, 6.6];
+    });
+    this.wingTips = [-7.2, 7.2];
     this.flyer = new Flyer(this.plane, { minSpeed: 30, maxSpeed: 120, cruise: 60, rollRate: 2.2, pitchRate: 1.25, turn: 1.15, stall: 25 });
     this.cam = new ChaseCam(world.camera, { dist: 20, height: 5.5, look: 30 });
     this.camMode = 0;
@@ -141,6 +155,7 @@ export default class PlaneGame {
     if (r > 4200) { const back = Math.atan2(-plane.position.x, -plane.position.z); this.respawn(plane.position.clone().setLength(4000).setY(Math.max(plane.position.y, 300)), back); this.say('Zona límite: volviendo ↩', 2); }
     if (plane.position.y > 1600) plane.position.y = 1600;
     plane.userData.prop.rotation.z += dt * (20 + flyer.speed * 0.8);
+    this.mixer?.update(dt * (1 + flyer.speed / 40));
 
     // colisión con el suelo o agua
     const gy = Math.max(this.H(plane.position.x, plane.position.z), 0);
@@ -166,7 +181,7 @@ export default class PlaneGame {
 
     // estelas de punta de ala
     if (flyer.gload > 2.2 || flyer.boost > 1) {
-      [-7.2, 7.2].forEach((x) => { const p = new THREE.Vector3(x, 0, 0.5).applyMatrix4(plane.matrixWorld); this.trail.emit(p, 1, { speed: 0.5, color: 0x9aa4b0, life: 1.6 }); });
+      this.wingTips.forEach((x) => { const p = new THREE.Vector3(x, 0, 0.5).applyMatrix4(plane.matrixWorld); this.trail.emit(p, 1, { speed: 0.5, color: 0x9aa4b0, life: 1.6 }); });
     }
 
     // cámara

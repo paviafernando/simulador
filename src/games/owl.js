@@ -2,12 +2,24 @@ import * as THREE from 'three';
 import { makeNoise, smoothstep } from '../engine/noise.js';
 import { buildTerrain, naturalColor, scatterTrees, buildClouds, buildWater, Particles, terrainSlope, getDot } from '../engine/terrain.js';
 import { Flyer, ChaseCam } from './flyer.js';
+import { tryModel } from '../engine/assets.js';
 import { fmt } from './plane.js';
 
+function featherTex(base, spot, w = 256, bars = false) {
+  const c = document.createElement('canvas'); c.width = c.height = w; const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, w, w);
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * w, y = Math.random() * w, l = 4 + Math.random() * 10;
+    g.strokeStyle = Math.random() > 0.5 ? spot : 'rgba(255,240,220,0.25)'; g.lineWidth = 1 + Math.random() * 1.5;
+    g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 2, y + l / 2, x, y + l); g.stroke();
+  }
+  if (bars) { g.fillStyle = 'rgba(40,25,15,0.45)'; for (let y = 0; y < w; y += 22) g.fillRect(0, y, w, 7); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+}
 function buildOwl() {
   const g = new THREE.Group();
-  const brown = new THREE.MeshStandardMaterial({ color: 0x8a6440, roughness: 0.85 });
-  const light = new THREE.MeshStandardMaterial({ color: 0xe9dcc4, roughness: 0.9 });
+  const brown = new THREE.MeshStandardMaterial({ color: 0xb08a60, roughness: 0.9, map: featherTex('#7a5636', 'rgba(30,18,10,0.6)') });
+  const light = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, map: featherTex('#e8dcc6', 'rgba(120,90,60,0.5)') });
   const dark = new THREE.MeshStandardMaterial({ color: 0x4a3322, roughness: 0.9 });
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.7, 24, 16), brown); body.scale.set(0.95, 0.85, 1.25); g.add(body);
   const belly = new THREE.Mesh(new THREE.SphereGeometry(0.62, 20, 14), light); belly.scale.set(0.85, 0.7, 1.1); belly.position.set(0, -0.15, 0.05); g.add(belly);
@@ -29,7 +41,7 @@ function buildOwl() {
   wingShape.lineTo(0, -0.4); wingShape.closePath();
   const wg = new THREE.ExtrudeGeometry(wingShape, { depth: 0.06, bevelEnabled: true, bevelSize: 0.03, bevelThickness: 0.03, bevelSegments: 1 });
   wg.rotateX(Math.PI / 2);
-  const wingMat = new THREE.MeshStandardMaterial({ color: 0x7a5636, roughness: 0.85, side: THREE.DoubleSide });
+  const wingMat = new THREE.MeshStandardMaterial({ color: 0xc09a70, roughness: 0.85, side: THREE.DoubleSide, map: featherTex('#6e4b2e', 'rgba(20,12,6,0.6)', 256, true) });
   const wings = [];
   [1, -1].forEach((s) => {
     const pivot = new THREE.Group(); pivot.position.set(0.45 * s, 0.2, 0.15);
@@ -69,7 +81,8 @@ export default class OwlGame {
   constructor({ world, synth, fx, hud }) {
     Object.assign(this, { world, synth, fx, hud });
     const scene = world.scene;
-    world.setupAtmosphere({ mode: 'night', elevation: 28, azimuth: 200, fog: 0.0011, fogColor: 0x0d1630, exposure: 1.0, shadowRange: 50, sunIntensity: 1.1, bloom: { strength: 0.9, radius: 0.6, threshold: 0.55 } });
+    world.setupAtmosphere({ mode: 'night', elevation: 28, azimuth: 200, fog: 0.0011, fogColor: 0x0d1630, exposure: 1.25, shadowRange: 50, sunIntensity: 1.3,
+      env: 'dikhololo_night_1k.hdr', envIntensity: 0.5, bloom: { strength: 1.1, radius: 0.75, threshold: 0.6 }, ao: { radius: 3, intensity: 2.5 } });
     const N = makeNoise(21);
     const H = (x, z) => {
       const r = Math.hypot(x, z);
@@ -78,7 +91,7 @@ export default class OwlGame {
       return THREE.MathUtils.lerp(h, 260, smoothstep(2400, 3200, r));
     };
     this.H = H;
-    scene.add(buildTerrain({ size: 7000, segments: world.q.segments, heightFn: H, colorFn: naturalColor(N, { snowLine: 9999, night: true }) }));
+    scene.add(buildTerrain({ size: 7000, segments: world.q.segments, heightFn: H, colorFn: naturalColor(N), noise: N, waterLevel: 5, night: true, rockSlope: 0.4 }));
     this.water = buildWater(world, { level: 5, color: 0x0a1a33, night: true }); scene.add(this.water);
     const nT = Math.floor(14000 * world.q.trees);
     this.trees = scatterTrees({ count: nT, area: 5200, heightFn: H, rnd: N.rnd, kind: 'pine', palette: [0x1d3a24, 0x23422a, 0x162e1c, 0x2a4a2c],
@@ -89,7 +102,7 @@ export default class OwlGame {
     const tp = this.trees.userData.positions;
     for (let i = 0; i < tp.length; i += 4) { const k = `${Math.floor(tp[i] / 20)},${Math.floor(tp[i + 2] / 20)}`; (this.grid.get(k) || this.grid.set(k, []).get(k)).push(i); }
     this.tp = tp;
-    scene.add(buildClouds({ count: Math.floor(50 * world.q.clouds), area: 5000, height: [60, 140], tint: 0x6a7aa8, shade: 0x1a2140, rnd: N.rnd, puffSize: 90 }));
+    scene.add(buildClouds({ count: Math.floor(50 * Math.max(0.4, world.q.trees)), area: 5000, height: [60, 140], tint: 0x5a6a98, shade: 0x141a36, rnd: N.rnd, puffSize: 90 }));
     this.ff = fireflies(H, Math.floor(7000 * (0.4 + world.q.trees * 0.6)), 2600, N.rnd); scene.add(this.ff);
 
     // orbes mágicos
@@ -109,6 +122,18 @@ export default class OwlGame {
     this.particles = new Particles(scene, 1500, { size: 1.5 }); this.particles.gravity = -1;
 
     this.owl = buildOwl(); scene.add(this.owl);
+    // Si existe /assets/models/owl.glb (por ejemplo una lechuza descargada de Sketchfab), se usa en lugar de la procedural
+    this.ready = tryModel('/assets/models/owl.glb').then((g) => {
+      if (!g) return;
+      const m = g.scene; const box = new THREE.Box3().setFromObject(m); const sz = box.getSize(new THREE.Vector3());
+      m.scale.setScalar(2.6 / Math.max(sz.x, sz.y, sz.z));
+      m.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      this.owl.children.filter((c) => !c.isLight).forEach((c) => (c.visible = false));
+      this.owl.scale.setScalar(1); this.owl.add(m); this.owl.userData.wings = [];
+      this.mixer = new THREE.AnimationMixer(m);
+      const clip = g.animations.find((a) => /fly|flap/i.test(a.name)) || g.animations[0];
+      if (clip) this.flyAction = this.mixer.clipAction(clip).play();
+    });
     const glow = new THREE.PointLight(0xb8ccff, 60, 22, 1.2); glow.position.set(0, 3, -4); this.owl.add(glow);
     const sx = 0, sz = -300; this.owl.position.set(sx, Math.max(H(sx, sz), 5) + 45, sz);
     this.flyer = new Flyer(this.owl, { minSpeed: 9, maxSpeed: 34, cruise: 17, rollRate: 2.4, pitchRate: 1.4, turn: 1.6, gravity: 0.45, stall: 11, accel: 8 });
@@ -145,6 +170,7 @@ export default class OwlGame {
     if (flapping && Math.floor(prevPhase / Math.PI / 2) !== Math.floor(this.flapPhase / Math.PI / 2)) { this.fx.sound('flap', 'tv'); this.fx.vibrate(25); }
     const amp = 0.15 + this.flap * 0.85;
     owl.userData.wings.forEach(({ pivot, s }) => { pivot.rotation.z = s * (Math.sin(this.flapPhase) * amp * 0.9 + 0.05); pivot.rotation.y = s * Math.cos(this.flapPhase) * 0.15 * amp; });
+    if (this.mixer) { this.flyAction && (this.flyAction.timeScale = flapping ? 1.8 : 0.6); this.mixer.update(dt); }
     if (inp.bPressed) {
       this.fx.sound('hoot'); this.fx.vibrate([60, 500, 80]);
       owl.userData.head.rotation.y = 0.001; this.headTurn = 1.4;

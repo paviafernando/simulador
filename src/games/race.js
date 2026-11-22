@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import { makeNoise, smoothstep } from '../engine/noise.js';
-import { buildTerrain, naturalColor, scatterTrees, buildClouds, Particles } from '../engine/terrain.js';
+import { buildTerrain, naturalColor, scatterTrees, buildClouds, Particles, tex } from '../engine/terrain.js';
+import { buildGrass } from '../engine/grass.js';
+import { loadModel } from '../engine/assets.js';
+import RAPIER from '@dimforge/rapier3d-compat';
 import { fmt } from './plane.js';
 
 const ROAD_W = 16;
 
 function roadTexture() {
   const c = document.createElement('canvas'); c.width = 256; c.height = 1024; const g = c.getContext('2d');
-  g.fillStyle = '#3a3c40'; g.fillRect(0, 0, 256, 1024);
+  g.fillStyle = '#26282b'; g.fillRect(0, 0, 256, 1024);
   const img = g.getImageData(0, 0, 256, 1024);
   for (let i = 0; i < img.data.length; i += 4) { const n = (Math.random() - 0.5) * 34; img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n; }
   g.putImageData(img, 0, 0);
@@ -69,7 +72,8 @@ export default class RaceGame {
   constructor({ world, synth, fx, hud }) {
     Object.assign(this, { world, synth, fx, hud });
     const scene = world.scene;
-    world.setupAtmosphere({ mode: 'day', elevation: 35, azimuth: 120, fog: 0.0007, exposure: 0.5, shadowRange: 70, bloom: { strength: 0.35, threshold: 0.85 } });
+    world.setupAtmosphere({ mode: 'day', hour: 16.3, env: 'noon_grass_1k.hdr', envIntensity: 1.2, shadowRange: 45, bloom: { strength: 0.5, threshold: 1.0 },
+      clouds: { coverage: 0.35 }, ao: { radius: 2, intensity: 2.2 } });
     const N = makeNoise(42);
     const base = (x, z) => N.fbm(x * 0.0018, z * 0.0018, 4) * 18 + smoothstep(700, 1500, Math.hypot(x, z)) * (60 + Math.pow(N.ridged(x * 0.0012, z * 0.0012, 5), 2) * 380);
     // trazado
@@ -99,7 +103,13 @@ export default class RaceGame {
       return THREE.MathUtils.lerp(n.y - 0.25, h0, t);
     };
     this.H = H;
-    scene.add(buildTerrain({ size: 4000, segments: world.q.segments, heightFn: H, colorFn: naturalColor(N, { waterLevel: -999, snowLine: 330 }) }));
+    const terrain = buildTerrain({ size: 4000, segments: world.q.segments, heightFn: H, colorFn: naturalColor(N), noise: N, waterLevel: -999, snowLine: 330, sand: 0x7d7262,
+      splatFn: (x, z, y, slope, w) => { const n = this.nearest(x, z, 1); if (!n) return; const g = (1 - smoothstep(ROAD_W / 2 + 3, ROAD_W / 2 + 7, n.d)) * 0.85; if (g > 0) { w[3] = Math.max(w[3], g); w[0] *= 1 - g; } } });
+    scene.add(terrain); this.terrain = terrain;
+    if (world.q.grass) {
+      scene.add(this.grass = buildGrass({ heightFn: H, area: 2400, res: 768, count: Math.floor(220000 * world.q.grass), radius: 40, bladeH: 0.42,
+        maskFn: (x, z) => { const n = this.nearest(x, z, 1); return n ? smoothstep(ROAD_W / 2 + 7, ROAD_W / 2 + 10, n.d) : 1; } }));
+    }
     // asfalto
     const pos = [], uv = [], idx = [];
     let acc = 0;
@@ -113,7 +123,9 @@ export default class RaceGame {
     const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); rg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); rg.setIndex(idx); rg.computeVertexNormals();
     const roadNormalsUp = rg.attributes.normal; for (let i = 0; i < roadNormalsUp.count; i++) if (roadNormalsUp.getY(i) < 0) { idx.reverse(); break; }
     rg.setIndex(idx); rg.computeVertexNormals();
-    const road = new THREE.Mesh(rg, new THREE.MeshStandardMaterial({ map: roadTexture(), roughness: 0.85, metalness: 0.05 }));
+    const rn = tex('rock_Normal.jpg', false).clone(); rn.repeat.set(6, 6); rn.needsUpdate = true;
+    const road = new THREE.Mesh(rg, new THREE.MeshStandardMaterial({ map: roadTexture(), roughness: 0.78, metalness: 0.0, normalMap: rn, normalScale: new THREE.Vector2(0.35, 0.35), envMapIntensity: 0.6 }));
+    this.road = road;
     road.receiveShadow = true; scene.add(road);
     // pianitos (curbs) rojo/blanco
     const curbG = new THREE.BoxGeometry(1.2, 0.18, 2.1);
@@ -157,15 +169,22 @@ export default class RaceGame {
     tyres.count = nt; scene.add(tyres);
     scene.add(scatterTrees({ count: Math.floor(6000 * world.q.trees), area: 3200, heightFn: H, rnd: N.rnd, kind: N.rnd() > 0.5 ? 'pine' : 'round', scale: [1.4, 2.6],
       accept: (x, z, y) => { const n = this.nearest(x, z, 1); return (!n || n.d > ROAD_W / 2 + 18) && y < 200 && Math.hypot(x - stand.position.x, z - stand.position.z) > 45; }, castShadow: world.q.shadows }));
-    scene.add(buildClouds({ count: Math.floor(40 * world.q.clouds), area: 5000, height: [400, 700], rnd: N.rnd, puffSize: 130 }));
+    if (!world.atmo?.clouds && world.q.billboardClouds) scene.add(buildClouds({ count: Math.floor(40 * world.q.billboardClouds), area: 5000, height: [400, 700], rnd: N.rnd, puffSize: 130, E: world.E }));
+    this.tyrePositions = [];
+    for (let i = 0; i < nt; i++) { tyres.getMatrixAt(i, mm); this.tyrePositions.push(new THREE.Vector3().setFromMatrixPosition(mm)); }
 
-    // autos
-    this.player = { obj: buildCarModel(0xe0101a), x: 0, z: 0, y: 0, h: 0, vf: 0, vl: 0, idx: 0, lap: 0, prog: 0, steerVis: 0, spin: 0, nitro: 100 };
+    // autos (modelo provisorio hasta que carga el Ferrari)
+    this.player = { obj: buildCarModel(0xe0101a), idx: 0, lap: 0, prog: 0, steerVis: 0, nitro: 100, flipT: 0 };
     scene.add(this.player.obj);
     const aiColors = [0x1a6cff, 0xffc400, 0x20c060, 0xff6a00, 0xaa33ff];
+    this.aiColors = aiColors;
     this.ai = aiColors.map((col, i) => ({ obj: buildCarModel(col), s: 0, v: 0, lane: 0, skill: 0.86 + i * 0.025 + Math.random() * 0.02, lap: 0, prog: 0, spin: 0 }));
     this.ai.forEach((a) => scene.add(a.obj));
-    this.reset();
+    this.ready = Promise.all([RAPIER.init(), loadModel('/assets/models/ferrari.glb')]).then(([, g]) => {
+      if (g) this.useFerrari(g);
+      this.initPhysics();
+      this.reset();
+    });
     this.particles = new Particles(scene, 800, { size: 2.2, additive: false }); this.particles.gravity = 1.5; this.particles.drag = 1.5;
     this.sparks = new Particles(scene, 600, { size: 0.5 });
     this.laps = 3; this.camMode = 0; this.camPos = new THREE.Vector3();
@@ -177,14 +196,84 @@ export default class RaceGame {
   }
 
   reset() {
-    const { P, T, Rt = this.R, M, L } = this;
+    const { P, T, M, L } = this, Rt = this.R;
     const startI = (k) => (M - 6 - k * 5 + M) % M;
     const place = (i, side) => P[i].clone().addScaledVector(Rt[i], side * 3.2);
     const pi = startI(3), pp = place(pi, 1);
-    Object.assign(this.player, { x: pp.x, z: pp.z, h: Math.atan2(T[pi].x, T[pi].z), idx: pi, lap: -1, vf: 0, vl: 0, nitro: 100 });
+    Object.assign(this.player, { idx: pi, lap: -1, nitro: 100, flipT: 0 });
+    this.placeCar(pp, Math.atan2(T[pi].x, T[pi].z));
     this.ai.forEach((a, k) => { const si = startI(k < 3 ? k : k + 1); a.s = si * (L / M); a.lane = (k % 2 ? 1 : -1) * 3.2; a.idx = si; a.lap = -1; a.v = 0; });
     this.state = 'count'; this.count = 4.2; this.time = 0; this.camInit = false; this.lastBeep = 5; this.msgT = 0;
     this.lamps.forEach((l) => l.material.emissive.set(0x000000));
+  }
+
+  useFerrari(g) {
+    const make = (color) => {
+      const root = g.scene.clone(true);
+      const wheels = [];
+      root.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true; o.receiveShadow = true;
+          o.material = o.material.clone();
+          if (o.material.name === 'Body_Color') { o.material = new THREE.MeshPhysicalMaterial({ color, metalness: 1.0, roughness: 0.45, clearcoat: 1, clearcoatRoughness: 0.03 }); o.material.name = 'Body_Color'; }
+          if (o.material.name === 'Glass_Gray') { o.material = new THREE.MeshPhysicalMaterial({ color: 0x111111, metalness: 0.25, roughness: 0, transmission: 0.6, transparent: true, opacity: 0.6 }); }
+        }
+        if (/^wheel_(fl|fr|rl|rr)$/.test(o.name)) { o.rotation.order = 'YXZ'; wheels.push({ node: o, front: /f/.test(o.name.slice(6)) && o.name[6] === 'f', base: o.rotation.x }); }
+      });
+      root.rotation.y = Math.PI; // el modelo mira hacia -Z; lo giramos a +Z
+      const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.655 * 4, 1.3 * 4).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: (() => { const t = new THREE.TextureLoader().load('/assets/models/ferrari_ao.png'); return t; })(), blending: THREE.MultiplyBlending, toneMapped: false, transparent: true, premultipliedAlpha: true, depthWrite: false }));
+      shadow.material.userData.raw = true; shadow.position.y = 0.02; shadow.renderOrder = 2;
+      const grp = new THREE.Group(); grp.add(root, shadow);
+      grp.userData.wheels = wheels.map((w) => ({ ...w, spin: { rotation: w.node.rotation }, steer: w.node }));
+      grp.userData.tail = new THREE.MeshStandardMaterial();
+      grp.userData.paint = color;
+      return grp;
+    };
+    const scene = this.world.scene;
+    scene.remove(this.player.obj); this.player.obj = make(0xd10f0f); scene.add(this.player.obj);
+    this.ai.forEach((a, i) => { scene.remove(a.obj); a.obj = make(this.aiColors[i]); scene.add(a.obj); });
+    this.ferrari = true;
+  }
+
+  initPhysics() {
+    const W = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    this.phys = W;
+    const tri = (mesh) => {
+      const g = mesh.geometry, p = g.attributes.position.array;
+      const v = new Float32Array(p.length); v.set(p);
+      if (mesh.matrixWorldNeedsUpdate || true) { mesh.updateMatrixWorld(true); const m = mesh.matrixWorld, t = new THREE.Vector3(); for (let i = 0; i < v.length; i += 3) { t.set(v[i], v[i + 1], v[i + 2]).applyMatrix4(m); v[i] = t.x; v[i + 1] = t.y; v[i + 2] = t.z; } }
+      const idx = g.index ? new Uint32Array(g.index.array) : new Uint32Array([...Array(v.length / 3).keys()]);
+      return RAPIER.ColliderDesc.trimesh(v, idx);
+    };
+    W.createCollider(tri(this.terrain).setFriction(0.9));
+    W.createCollider(tri(this.road).setFriction(1.1));
+    // barreras de neumáticos: obstáculos reales
+    this.tyrePositions.forEach((p) => W.createCollider(RAPIER.ColliderDesc.cylinder(0.6, 0.7).setTranslation(p.x, p.y + 0.3, p.z).setRestitution(0.3)));
+    // chasis
+    const body = W.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setCanSleep(false).setAngularDamping(0.9).setLinearDamping(0.01).setCcdEnabled(true));
+    W.createCollider(RAPIER.ColliderDesc.cuboid(0.92, 0.32, 2.15).setTranslation(0, 0.6, 0).setMass(1250).setFriction(0.4).setRestitution(0.1), body);
+    const veh = W.createVehicleController(body); veh.indexUpAxis = 1; veh.setIndexForwardAxis = 2;
+    [[0.83, 0.42, 1.32], [-0.83, 0.42, 1.32], [0.83, 0.42, -1.48], [-0.83, 0.42, -1.48]].forEach(([x, y, z], k) => {
+      veh.addWheel({ x, y, z }, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, 0.3, 0.36);
+      veh.setWheelSuspensionStiffness(k, 42); veh.setWheelSuspensionCompression(k, 4.4); veh.setWheelSuspensionRelaxation(k, 5.2);
+      veh.setWheelMaxSuspensionForce(k, 70000); veh.setWheelFrictionSlip(k, 2.6); veh.setWheelMaxSuspensionTravel(k, 0.25);
+    });
+    this.body = body; this.veh = veh;
+    // rivales: cuerpos cinemáticos (empujan de verdad)
+    this.ai.forEach((a) => {
+      a.body = W.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
+      W.createCollider(RAPIER.ColliderDesc.cuboid(0.92, 0.5, 2.15).setTranslation(0, 0.7, 0).setFriction(0.3), a.body);
+    });
+    this.acc = 0;
+  }
+
+  placeCar(p, heading) {
+    if (!this.body) return;
+    const y = this.H(p.x, p.z) + 0.6;
+    this.body.setTranslation({ x: p.x, y, z: p.z }, true);
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading);
+    this.body.setRotation(q, true);
+    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true); this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
 
   nearest(x, z, rad = 1) {
@@ -211,7 +300,7 @@ export default class RaceGame {
     if (this.state === 'count') {
       this.count -= dt;
       const lit = Math.min(5, Math.floor((4.2 - this.count) / 0.7));
-      this.lamps.forEach((l, i) => { l.material.emissive.set(i < lit ? 0xff1010 : 0x000000); l.material.emissiveIntensity = 3; });
+      this.lamps.forEach((l, i) => { l.material.emissive.set(i < lit ? 0xff1010 : 0x000000); l.material.emissiveIntensity = 9 * this.world.E; });
       if (lit !== this.lastBeep && lit > 0 && lit <= 5) { this.lastBeep = lit; this.fx.sound('beep'); this.fx.vibrate(60); }
       this.hud.C.innerHTML = `<div class="msg big">${lit >= 5 ? '¡Preparados!' : '🔴'.repeat(lit) + '⚫'.repeat(5 - lit)}</div>`;
       if (this.count <= 0) { this.state = 'race'; this.lamps.forEach((l) => l.material.emissive.set(0x00ff40)); this.fx.sound('go'); this.fx.vibrate([300]); this.hud.C.innerHTML = '<div class="msg big go">¡YA!</div>'; this.msgT = 1; }
@@ -221,37 +310,49 @@ export default class RaceGame {
     if (racing) this.time += dt;
     if (inp.bPressed) this.fx.sound('horn');
 
-    // ---- física del jugador ----
-    const n = this.nearest(pl.x, pl.z, 2) || { d: 999, lat: 0, i: pl.idx, y: pl.y };
+    // ---- física del jugador (Rapier: vehículo con suspensión y fricción por rueda) ----
+    const body = this.body, veh = this.veh;
+    const tp = body.translation();
+    const n = this.nearest(tp.x, tp.z, 2) || { d: 999, lat: 0, i: pl.idx, y: tp.y };
     const off = n.d > ROAD_W / 2 + 1.5;
-    const fwd = new THREE.Vector2(Math.sin(pl.h), Math.cos(pl.h));
     const steer = THREE.MathUtils.clamp(inp.steer, -1, 1);
     let nitro = 0;
     if (inp.a > 0 && pl.nitro > 0 && racing) { nitro = 1; pl.nitro = Math.max(0, pl.nitro - dt * 30); if (inp.aPressed) { this.fx.sound('boost'); this.fx.vibrate([100, 30, 200]); } } else pl.nitro = Math.min(100, pl.nitro + dt * 6);
-    const maxV = (off ? 18 : 62) + nitro * 18;
+    const speed = veh.currentVehicleSpeed();
     const gas = racing ? inp.gas : 0;
-    let accel = gas * (off ? 9 : 16) * (1 - pl.vf / (maxV + 1)) + nitro * 14;
-    if (inp.brake > 0) accel -= (pl.vf > 1 ? 30 : 8) * inp.brake;
-    accel -= 0.0035 * pl.vf * Math.abs(pl.vf) + (off ? 3 : 0.4) * Math.sign(pl.vf);
-    pl.vf += accel * dt;
-    if (Math.abs(pl.vf) < 0.3 && gas === 0 && inp.brake === 0) pl.vf = 0;
-    pl.vf = Math.max(-8, pl.vf);
-    const steerGain = 1.9 / (1 + Math.abs(pl.vf) / 28);
-    const drift = inp.brake > 0 && Math.abs(steer) > 0.4 && pl.vf > 20;
-    pl.h -= steer * steerGain * dt * Math.min(1, Math.abs(pl.vf) / 6) * Math.sign(pl.vf || 1) * (drift ? 1.35 : 1);
-    // deslizamiento lateral
-    pl.vl += -steer * pl.vf * 0.06 * dt * 60 * (drift ? 0.9 : 0.25);
-    pl.vl *= Math.exp(-(drift ? 1.8 : off ? 7 : 9) * dt);
-    const right = new THREE.Vector2(-fwd.y, fwd.x);
-    pl.x += (fwd.x * pl.vf + right.x * pl.vl) * dt;
-    pl.z += (fwd.y * pl.vf + right.y * pl.vl) * dt;
-    // límites
-    if (n.d > ROAD_W / 2 + 30) {
-      const p = P[n.i]; const back = new THREE.Vector2(p.x - pl.x, p.z - pl.z).normalize();
-      pl.x += back.x * (n.d - ROAD_W / 2 - 30); pl.z += back.y * (n.d - ROAD_W / 2 - 30); pl.vf *= 0.5;
-      this.fx.vibrate([200, 50, 100]); this.fx.sound('crash', 'tv');
+    const vmax = 66 + nitro * 16;
+    const engine = (gas * 5200 * Math.max(0, 1 - speed / vmax) + nitro * 4200) * (speed < -1 ? 0 : 1);
+    const reverse = inp.brake > 0 && speed < 1.5 && gas === 0 ? -2200 : 0;
+    const drift = inp.brake > 0 && Math.abs(steer) > 0.35 && speed > 18;
+    const steerAng = -steer * 0.55 / (1 + Math.max(0, speed) / 22);
+    for (let k = 0; k < 4; k++) {
+      const front = k < 2;
+      if (front) veh.setWheelSteering(k, steerAng);
+      else veh.setWheelEngineForce(k, engine + reverse);
+      veh.setWheelBrake(k, inp.brake > 0 && speed > 1.5 ? (drift ? (front ? 8 : 40) : 60) : gas === 0 ? 2 : 0);
+      veh.setWheelFrictionSlip(k, off ? 1.4 : drift && !front ? 1.1 : 2.6);
     }
-    pl.y = this.H(pl.x, pl.z);
+    // arrastre aerodinámico + carga aerodinámica
+    const lv = body.linvel();
+    const v2 = lv.x * lv.x + lv.z * lv.z, vv = Math.sqrt(v2);
+    if (vv > 0.5) body.applyImpulse({ x: -lv.x * vv * 0.42 * dt, y: -vv * vv * 0.9 * dt, z: -lv.z * vv * 0.42 * dt }, true);
+    // paso fijo
+    this.acc = Math.min(this.acc + dt, 0.1);
+    while (this.acc >= 1 / 60) {
+      this.ai.forEach((a) => a.next && (a.body.setNextKinematicTranslation(a.next.p), a.body.setNextKinematicRotation(a.next.q)));
+      veh.updateVehicle(1 / 60); this.phys.step(); this.acc -= 1 / 60;
+    }
+    const t2 = body.translation(), r2 = body.rotation();
+    const q = new THREE.Quaternion(r2.x, r2.y, r2.z, r2.w);
+    const fwd3 = new THREE.Vector3(0, 0, 1).applyQuaternion(q), up3 = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+    const fwd = new THREE.Vector2(fwd3.x, fwd3.z).normalize();
+    // impactos
+    const nv = body.linvel(); const dv = Math.hypot(nv.x - lv.x, nv.y - lv.y, nv.z - lv.z);
+    if (dv > 5) { this.fx.vibrate([Math.min(400, 60 + dv * 25), 40, 80]); this.fx.sound(dv > 12 ? 'crash' : 'bump'); this.sparks.emit(new THREE.Vector3(t2.x, t2.y + 0.6, t2.z), 40, { speed: 8, color: 0xffcc55, life: 0.5 }); }
+    // volcado o fuera de pista: volver a la pista
+    pl.flipT = up3.y < 0.3 ? pl.flipT + dt : 0;
+    if (pl.flipT > 1.5 || n.d > ROAD_W / 2 + 60 || t2.y < -50) { const i = n.i; this.placeCar(P[i].clone(), Math.atan2(this.T[i].x, this.T[i].z)); pl.flipT = 0; this.hud.C.innerHTML = '<div class="msg">🔧 ¡De vuelta a la pista!</div>'; this.msgT = 1.5; }
+    pl.x = t2.x; pl.z = t2.z; pl.y = t2.y; pl.vf = speed;
     // avance en la pista y vueltas
     const prevIdx = pl.idx; pl.idx = n.i;
     if (prevIdx > M * 0.85 && pl.idx < M * 0.15) { pl.lap++; this.onLap(); }
@@ -273,53 +374,53 @@ export default class RaceGame {
       const p = P[a.idx].clone().lerp(P[(a.idx + 1) % M], (a.s / (this.L / M)) % 1);
       a.lane += (Math.sin(this.time * 0.3 + a.skill * 50) * 3.5 - a.lane) * dt * 0.5;
       p.addScaledVector(this.R[a.idx], a.lane);
-      // choque con jugador
+      // si el jugador está muy cerca adelante, la IA frena un poco
       const dx = pl.x - p.x, dz = pl.z - p.z, dd = Math.hypot(dx, dz);
-      if (dd < 3.6 && dd > 0.01) {
-        const push = (3.6 - dd) / 2; pl.x += (dx / dd) * push; pl.z += (dz / dd) * push; p.x -= (dx / dd) * push * 0.3;
-        if (!a.hitT || this.time - a.hitT > 0.6) { a.hitT = this.time; this.fx.vibrate([150, 40, 80]); this.fx.sound('bump'); pl.vf *= 0.85; a.v *= 0.9;
-          this.sparks.emit(new THREE.Vector3((pl.x + p.x) / 2, pl.y + 0.6, (pl.z + p.z) / 2), 40, { speed: 8, color: 0xffcc55, life: 0.5 }); }
-      }
-      a.obj.position.set(p.x, this.H(p.x, p.z), p.z);
-      const tt = this.T[a.idx]; a.obj.rotation.set(0, Math.atan2(tt.x, tt.z), 0);
-      a.spin += a.v * dt / 0.4; a.obj.userData.wheels.forEach((w) => (w.spin.rotation.x = a.spin));
+      if (dd < 7 && (dx * this.T[a.idx].x + dz * this.T[a.idx].z) > 0) a.v *= 1 - dt * 1.5;
+      const yaw = Math.atan2(this.T[a.idx].x, this.T[a.idx].z);
+      const gy = this.H(p.x, p.z);
+      a.obj.position.set(p.x, gy, p.z);
+      a.obj.rotation.set(0, yaw, 0);
+      a.next = { p: { x: p.x, y: gy, z: p.z }, q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw) };
+      a.spin += a.v * dt / 0.36; a.obj.userData.wheels.forEach((w) => { w.spin.rotation.x = (w.base || 0) + a.spin; });
     }
 
     // ---- visual del jugador ----
     const o = pl.obj;
-    o.position.set(pl.x, pl.y, pl.z);
-    const ahead = this.H(pl.x + fwd.x * 2, pl.z + fwd.y * 2), behind = this.H(pl.x - fwd.x * 2, pl.z - fwd.y * 2);
-    const pitch = Math.atan2(behind - ahead, 4);
+    o.position.set(t2.x, t2.y - 0.2, t2.z); o.quaternion.copy(q);
     pl.steerVis += (steer - pl.steerVis) * Math.min(1, dt * 10);
-    o.rotation.set(pitch, pl.h, pl.steerVis * Math.min(1, pl.vf / 40) * 0.06 + pl.vl * 0.01, 'YXZ');
-    pl.spin += pl.vf * dt / 0.4;
-    o.userData.wheels.forEach((w) => { w.spin.rotation.x = pl.spin; if (w.front) w.steer.rotation.y = -pl.steerVis * 0.5; });
-    o.userData.tail.emissiveIntensity = inp.brake > 0 ? 6 : 2;
-    const skidding = Math.abs(pl.vl) > 2.5 || drift;
-    if (skidding || (off && pl.vf > 5)) {
-      o.userData.wheels.filter((w) => !w.front).forEach((w) => { const wp = new THREE.Vector3(); w.steer.getWorldPosition(wp); this.particles.emit(wp, 1, { speed: 1.5, color: off ? 0x8a7a55 : 0xcccccc, life: 1.4, up: 1 }); });
+    o.userData.wheels.forEach((w, k) => {
+      const i = this.ferrari ? { wheel_fl: 0, wheel_fr: 1, wheel_rl: 2, wheel_rr: 3 }[w.node.name] : [1, 0, 3, 2][k] ?? k;
+      w.spin.rotation.x = (w.base || 0) + (veh.wheelRotation(i) || 0);
+      if (w.front) w.steer.rotation.y = veh.wheelSteering(i) || 0;
+    });
+    const skidding = drift || Math.abs(new THREE.Vector3(nv.x, 0, nv.z).dot(new THREE.Vector3(fwd.y, 0, -fwd.x))) > 3.5;
+    if ((skidding || (off && speed > 5)) && speed > 3) {
+      [-0.8, 0.8].forEach((x) => { const wp = new THREE.Vector3(x, 0.15, -1.45).applyMatrix4(o.matrixWorld); this.particles.emit(wp, 1, { speed: 1.5, color: off ? 0x8a7a55 : 0xcccccc, life: 1.4, up: 1 }); });
     }
-    if (nitro) { const ex = new THREE.Vector3(0, 0.5, -2.6).applyMatrix4(o.matrixWorld); this.sparks.emit(ex, 3, { speed: 3, color: 0x55aaff, life: 0.3, dir: new THREE.Vector3(-fwd.x, 0, -fwd.y) }); }
+    if (nitro) { const ex = new THREE.Vector3(0, 0.45, -2.3).applyMatrix4(o.matrixWorld); this.sparks.emit(ex, 3, { speed: 3, color: 0x55aaff, life: 0.3, dir: new THREE.Vector3(-fwd.x, 0, -fwd.y) }); }
+    this.grass?.userData.update(this.world.camera);
 
     // ---- cámara ----
     const cam = this.world.camera;
     const camBack = this.camMode === 0 ? 9 : 4.5, camUp = this.camMode === 0 ? 3.4 : 1.6;
     const desired = new THREE.Vector3(pl.x - fwd.x * camBack, pl.y + camUp, pl.z - fwd.y * camBack);
+    void up3;
     if (!this.camInit) { this.camPos.copy(desired); this.camInit = true; }
     this.camPos.lerp(desired, 1 - Math.exp(-dt * 6));
     this.camPos.y = Math.max(this.camPos.y, this.H(this.camPos.x, this.camPos.z) + 1);
     cam.position.copy(this.camPos); cam.up.set(0, 1, 0);
     cam.lookAt(pl.x + fwd.x * 6, pl.y + 1.2, pl.z + fwd.y * 6);
-    cam.fov += (65 + Math.max(0, pl.vf - 20) * 0.3 + nitro * 10 - cam.fov) * Math.min(1, dt * 3); cam.updateProjectionMatrix();
+    cam.fov += (62 + Math.max(0, pl.vf - 20) * 0.3 + nitro * 10 - cam.fov) * Math.min(1, dt * 3); cam.updateProjectionMatrix();
     this.world.followShadow(o.position);
 
     // ---- sonido / vibración ----
     const gear = Math.min(5, Math.floor(Math.abs(pl.vf) / 13));
     const rpm = (Math.abs(pl.vf) - gear * 13) / 13 * 0.6 + gear * 0.08 + gas * 0.15;
     this.engine.set(rpm, 0.2 + gas * 0.8);
-    this.skid.set(skidding && !off ? Math.min(1, Math.abs(pl.vl) / 6 + (drift ? 0.5 : 0)) : 0);
+    this.skid.set(skidding && !off && speed > 5 ? (drift ? 0.9 : 0.5) : 0);
     this.windL.set(Math.abs(pl.vf) / 60);
-    this.fx.rumble(Math.min(1, (off ? 0.35 + pl.vf / 40 : 0.05 + Math.abs(pl.vf) / 160) + (skidding ? 0.25 : 0) + nitro * 0.3));
+    this.fx.rumble(Math.min(1, (off ? 0.35 + Math.abs(speed) / 40 : 0.05 + Math.abs(speed) / 160) + (skidding ? 0.25 : 0) + nitro * 0.3));
 
     // ---- HUD ----
     const all = [{ prog: pl.prog, me: true }, ...this.ai.map((a) => ({ prog: a.prog }))].sort((a, b) => b.prog - a.prog);
@@ -348,9 +449,9 @@ export default class RaceGame {
     g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 5; g.lineJoin = 'round'; g.beginPath();
     this.P.forEach((p, i) => (i ? g.lineTo(X(p.x), Y(p.z)) : g.moveTo(X(p.x), Y(p.z)))); g.closePath(); g.stroke();
     const dot = (x, z, col, r) => { g.fillStyle = col; g.beginPath(); g.arc(X(x), Y(z), r, 0, 7); g.fill(); };
-    this.ai.forEach((a) => dot(a.obj.position.x, a.obj.position.z, '#' + a.obj.children[0].material.color.getHexString(), 4.5));
+    this.ai.forEach((a, i) => dot(a.obj.position.x, a.obj.position.z, '#' + new THREE.Color(this.aiColors[i]).getHexString(), 4.5));
     dot(this.player.x, this.player.z, '#ff2030', 6.5);
   }
   padHud() { return `${this.pos || '-'}° · Vuelta ${Math.min(this.laps, this.player.lap + 1)}/${this.laps}`; }
-  dispose() {}
+  dispose() { this.phys?.free(); }
 }

@@ -11,7 +11,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "@takram/three-atmosphere": "^0.19.1",
+    "@takram/three-clouds": "^0.7.6",
+    "@takram/three-geospatial": "^0.9.1",
+    "3d-tiles-renderer": "^0.5.4",
+    "n8ao": "^2.1.0",
     "peerjs": "^1.5.5",
+    "postprocessing": "^6.39.6",
     "qrcode": "^1.5.4",
     "three": "^0.170.0"
   },
