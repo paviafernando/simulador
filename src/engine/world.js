@@ -5,6 +5,7 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { AerialPerspectiveEffect, PrecomputedTexturesLoader, SkyMaterial, SunDirectionalLight, SkyLightProbe, getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere';
 import { CloudsEffect, CLOUD_SHAPE_TEXTURE_SIZE, CLOUD_SHAPE_DETAIL_TEXTURE_SIZE } from '@takram/three-clouds';
 import { Ellipsoid, Geodetic, radians, DataTextureLoader, parseUint8Array, STBNLoader } from '@takram/three-geospatial';
+import { viewSize } from '../screen.js';
 
 // Presets de calidad: deciden resolución, sombras, oclusión ambiental, nubes volumétricas, densidad de vegetación…
 export const QUALITY = {
@@ -41,6 +42,7 @@ export class World {
     this.loadAtmosphereData();
     this.applyQuality();
     window.addEventListener('resize', () => this.resize());
+    window.addEventListener('simu-resize', () => this.resize());
   }
 
   setQualityName(name) { this.qualityName = QUALITY[name] ? name : 'high'; this.q = QUALITY[this.qualityName]; }
@@ -72,7 +74,7 @@ export class World {
   }
 
   resize() {
-    const w = window.innerWidth, h = window.innerHeight;
+    const { w, h } = viewSize();
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);

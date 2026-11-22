@@ -177,7 +177,7 @@ export default class OwlGame {
     }
     if (this.headTurn > 0) { this.headTurn -= dt; owl.userData.head.rotation.y = Math.sin(this.headTurn * 4) * 0.6; }
     if (flapping) flyer.boost = Math.min(10, flyer.boost + dt * 25);
-    flyer.update(dt, { steer: inp.steer, pitch: -inp.tilt, gas: inp.gas, brake: inp.brake }, flapping ? 7 : -1.0);
+    flyer.update(dt, { steer: inp.steer, pitch: -inp.tilt, gas: inp.gas, brake: inp.brake, assist: inp.assist }, flapping ? 7 : -1.0);
 
     // suelo, agua, árboles y límites
     const p = owl.position;

@@ -319,12 +319,22 @@ export default class RaceGame {
     let nitro = 0;
     if (inp.a > 0 && pl.nitro > 0 && racing) { nitro = 1; pl.nitro = Math.max(0, pl.nitro - dt * 30); if (inp.aPressed) { this.fx.sound('boost'); this.fx.vibrate([100, 30, 200]); } } else pl.nitro = Math.min(100, pl.nitro + dt * 6);
     const speed = veh.currentVehicleSpeed();
-    const gas = racing ? inp.gas : 0;
+    // ayudas: acelera solo (el freno manda) y corrige suave hacia la pista si te vas
+    const autoGas = inp.assist && inp.brake === 0 ? 0.85 : 0;
+    const gas = racing ? Math.max(inp.gas, autoGas) : 0;
+    let steerIn = steer;
+    if (inp.assist && racing) {
+      const ahead = (n.i + 10) % M, tp2 = P[ahead];
+      const r3 = body.rotation(), fw = new THREE.Vector3(0, 0, 1).applyQuaternion(new THREE.Quaternion(r3.x, r3.y, r3.z, r3.w));
+      const want = Math.atan2(tp2.x - tp.x, tp2.z - tp.z), have = Math.atan2(fw.x, fw.z);
+      const err = Math.atan2(Math.sin(want - have), Math.cos(want - have));
+      steerIn = THREE.MathUtils.clamp(steer - err * 0.35 * (1 - Math.abs(steer)), -1, 1);
+    }
     const vmax = 66 + nitro * 16;
     const engine = (gas * 5200 * Math.max(0, 1 - speed / vmax) + nitro * 4200) * (speed < -1 ? 0 : 1);
     const reverse = inp.brake > 0 && speed < 1.5 && gas === 0 ? -2200 : 0;
     const drift = inp.brake > 0 && Math.abs(steer) > 0.35 && speed > 18;
-    const steerAng = -steer * 0.55 / (1 + Math.max(0, speed) / 22);
+    const steerAng = -steerIn * 0.55 / (1 + Math.max(0, speed) / 22);
     for (let k = 0; k < 4; k++) {
       const front = k < 2;
       if (front) veh.setWheelSteering(k, steerAng);

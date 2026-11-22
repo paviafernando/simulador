@@ -20,7 +20,16 @@ export class Flyer {
   update(dt, inp, extraLift = 0) {
     const o = this.o, obj = this.obj;
     this.axes();
-    const steer = THREE.MathUtils.clamp(inp.steer, -1, 1), pitch = THREE.MathUtils.clamp(inp.pitch, -1, 1);
+    let steer = THREE.MathUtils.clamp(inp.steer, -1, 1), pitch = THREE.MathUtils.clamp(inp.pitch, -1, 1);
+    if (inp.assist) {
+      // Modo asistido: la inclinación del celu ES la actitud del avión (alabeo máx 55°, cabeceo máx 30°)
+      const bankNow = Math.asin(THREE.MathUtils.clamp(-this.right.y, -1, 1));
+      const pitchNow = Math.asin(THREE.MathUtils.clamp(this.fwd.y, -1, 1));
+      const upside = this.up.y < 0;
+      steer = THREE.MathUtils.clamp((steer * 0.96 - bankNow) * 2.6 / o.rollRate * 2, -1, 1);
+      pitch = THREE.MathUtils.clamp((pitch * 0.52 - pitchNow) * 3 / o.pitchRate, -1, 1);
+      if (upside) steer = -Math.sign(bankNow || 1);
+    }
     // alabeo y cabeceo locales
     obj.rotateOnAxis(FWD, steer * o.rollRate * dt);
     obj.rotateOnAxis(LEFT, -pitch * o.pitchRate * dt); // pitch>0 = nariz arriba
@@ -30,7 +39,7 @@ export class Flyer {
     const yaw = -this.bank * o.turn * dt * (0.6 + 0.4 * Math.min(1, this.speed / o.cruise));
     this._q.setFromAxisAngle(WY, yaw); obj.quaternion.premultiply(this._q);
     // auto-nivelado suave
-    if (Math.abs(steer) < 0.15) obj.rotateOnAxis(FWD, -this.bank * o.autoLevel * dt);
+    if (!inp.assist && Math.abs(steer) < 0.15) obj.rotateOnAxis(FWD, -this.bank * o.autoLevel * dt);
     // evitar invertir de más: limitar alabeo
     this.axes();
     if (this.up.y < 0.15 && Math.abs(steer) < 0.5) obj.rotateOnAxis(FWD, -Math.sign(this.bank) * 1.5 * dt);

@@ -149,7 +149,7 @@ export default class PlaneGame {
       return;
     }
     if (inp.aPressed && flyer.boost < 5) { flyer.boost = 45; this.fx.sound('boost'); this.fx.vibrate([80, 40, 120]); }
-    flyer.update(dt, { steer: inp.steer, pitch: -inp.tilt, gas: inp.gas, brake: inp.brake });
+    flyer.update(dt, { steer: inp.steer, pitch: -inp.tilt, gas: inp.gas, brake: inp.brake, assist: inp.assist });
     // límites del mapa
     const r = Math.hypot(plane.position.x, plane.position.z);
     if (r > 4200) { const back = Math.atan2(-plane.position.x, -plane.position.z); this.respawn(plane.position.clone().setLength(4000).setY(Math.max(plane.position.y, 300)), back); this.say('Zona límite: volviendo ↩', 2); }

@@ -25,6 +25,7 @@ function startController(code) {
     send: (m) => link?.send(m),
     sendFast: (m) => link?.sendFast(m),
   });
+  window.__pad = pad;
   link = new PadLink(code, {
     onMsg: (m) => (HUB && m.t === 'home' ? goHub() : pad.handle(m)),
     onStatus: (s) => {
@@ -46,3 +47,5 @@ function askCode() {
     <input id="cin" maxlength="4" autocapitalize="characters" placeholder="ABCD"><button id="cgo">Conectar</button></div>`;
   document.getElementById('cgo').onclick = () => { const v = document.getElementById('cin').value.trim(); if (v.length === 4) location.href = '/?c=' + v.toUpperCase(); };
 }
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

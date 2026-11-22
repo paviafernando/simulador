@@ -136,7 +136,7 @@ export default class RealWorldGame {
       return;
     }
     if (inp.aPressed && flyer.boost < 5) { flyer.boost = 50; this.fx.sound('boost'); this.fx.vibrate([80, 40, 120]); }
-    flyer.update(dt, { steer: inp.steer, pitch: -inp.tilt, gas: inp.gas, brake: inp.brake });
+    flyer.update(dt, { steer: inp.steer, pitch: -inp.tilt, gas: inp.gas, brake: inp.brake, assist: inp.assist });
     this.mixer?.update(dt * (1 + flyer.speed / 40));
     if (plane.position.y > 3000) plane.position.y = 3000;
     // colisiones con el mundo real (rayos contra las teselas)

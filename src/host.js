@@ -6,6 +6,7 @@ import { GAMES } from './games/catalog.js';
 import { createPad } from './pad.js';
 import { haptic } from './sensors.js';
 import { SHARED } from './engine/terrain.js';
+import { fullscreenButton, enterFullscreen, fsEl, toast } from './screen.js';
 
 const loaders = {
   plane: () => import('./games/plane.js'),
@@ -41,13 +42,18 @@ export async function startHost({ solo = false } = {}) {
           <label>Calidad <select id="quality"><option value="ultra">Ultra (PC potente)</option><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja (Smart TV)</option></select></label>
           ${solo ? '' : '<a class="solo-link" href="/#solo">📱 Jugar solo en este celular</a>'}
           ${HUB ? '<button class="hub-link" id="hubHome">🏠 Todos los juegos</button>' : ''}
+          <span id="fsSlot" class="fs-slot"></span>
           <span class="keys">Teclado: flechas · W/S · Espacio · C · Esc</span>
         </div>
       </div>
     </div>
     <div id="loading" class="hide"><div class="spin"></div><span>Generando mundo…</span></div>
     <div id="tapsound" class="hide">🔇 Tocá la pantalla para activar el sonido</div>
-    <div id="padRoot" class="${solo ? '' : 'hide'}"></div>`;
+    <div id="padRoot" class="${solo ? '' : 'hide'}"></div>
+    <div id="gameFs"></div>`;
+  document.getElementById('fsSlot').appendChild(fullscreenButton('fsbtn big-fs', { landscape: solo }, 'Pantalla completa'));
+  if (!solo) document.getElementById('gameFs').appendChild(fullscreenButton('fsbtn game-fs'));
+  let assist = true;
 
   const isMobile = matchMedia('(pointer:coarse)').matches;
   const qSel = document.getElementById('quality');
@@ -110,13 +116,15 @@ export async function startHost({ solo = false } = {}) {
     else if (m.t === 'btn') edges[m.k] = true;
     else if (m.t === 'hello') sendCfg();
     else if (m.t === 'snd') synth.enabled = m.on;
+    else if (m.t === 'assist') assist = !!m.on;
+    else if (m.t === 'cal' && game && !solo) toast('🎯 Mando centrado', 1200);
   }
   function sendCfg() {
     const g = GAMES.find((x) => x.id === gameId);
-    toPad({ t: 'cfg', menu: !game, title: g ? `${g.emoji} ${g.name}` : 'Elegí un juego', labels: g?.labels });
+    toPad({ t: 'cfg', menu: !game, game: game ? gameId : null, title: g ? `${g.emoji} ${g.name}` : 'Elegí un juego', labels: g?.labels });
   }
 
-  document.querySelectorAll('.gcard').forEach((b) => (b.onclick = () => { unlock(); launch(b.dataset.g); }));
+  document.querySelectorAll('.gcard').forEach((b) => (b.onclick = () => { unlock(); if (!fsEl()) enterFullscreen({ landscape: solo }); launch(b.dataset.g); }));
 
   // ---- índice PF Juegos ----
   const goHub = () => { toPad({ t: 'home' }); setTimeout(() => { location.href = `${HUB_URL}/?tv`; }, 250); };
@@ -148,7 +156,7 @@ export async function startHost({ solo = false } = {}) {
       yaw: remote.y, look: remote.l,
       gas: Math.max(remote.g, k('KeyW'), k('KeyZ')), brake: Math.max(remote.b, k('KeyS'), k('KeyX')),
       a: Math.max(remote.a, k('Space')), b: Math.max(remote.a2, k('KeyC')),
-      aPressed: edges.a, bPressed: edges.b,
+      aPressed: edges.a, bPressed: edges.b, assist,
     };
     edges.a = edges.b = false;
     return inp;
